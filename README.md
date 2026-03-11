@@ -28,6 +28,8 @@ No dependencies required. Just Python 3.
 ```bash
 disk-usage-delta snapshot
 disk-usage-delta snapshot "before-cleanup"
+disk-usage-deta snapshot --path /home "home-directory"
+disk-usage-delta snapshot -p /var/log "logs"
 ```
 
 ### List all snapshots
@@ -38,10 +40,11 @@ disk-usage-delta list
 
 Output looks like:
 ```
-ID     Label                Timestamp                 Used           
-----------------------------------------------------------------------
-1      snapshot-1           2026-03-11T10:30:00       45.20 GB       
-2      before-cleanup       2026-03-11T14:00:00       52.10 GB       
+ID     Label                Path                      Timestamp                 Used
+-------------------------------------------------------------------------------------------------
+1      snapshot-1           /                         2026-03-11T10:30:00       45.20 GB
+2      before-cleanup       /                         2026-03-11T14:00:00       52.10 GB
+3      home-directory       /home                     2026-03-11T15:00:00       12.50 GB
 ```
 
 ### Compare two snapshots
@@ -83,8 +86,23 @@ disk-usage-delta snapshot "after-apt-upgrade"
 disk-usage-delta delta 1 2
 ```
 
+## Tracking Specific Paths
+
+By default, snapshots track the root filesystem (`/`). You can track any path:
+
+```bash
+# Track your home directory
+disk-usage-delta snapshot -p /home "home-before-install"
+
+# Track a specific project directory
+disk-usage-delta snapshot -p /projects/myproject "before-build"
+
+# Track logs directory
+disk-usage-delta snapshot -p /var/log "logs-before-rotation"
+```
+
 ## Notes
 
-- Only tracks the root filesystem (`/`)
 - Uses `os.statvfs` so it works on Linux and macOS
 - No network calls, no telemetry, nothing fancy
+- When comparing snapshots with `delta`, a warning is shown if the paths differ
