@@ -7,11 +7,66 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 DATA_DIR = Path.home() / ".disk-usage-delta"
 SNAPSHOTS_FILE = DATA_DIR / "snapshots.json"
+
+# Cache for disk usage results: {path: (result, timestamp)}
+_disk_usage_cache = {}
+_cache_ttl = 5.0  # seconds
+
+
+def set_cache_ttl(seconds: float):
+    """Set the cache TTL in seconds."""
+    global _cache_ttl
+    _cache_ttl = seconds
+
+
+def clear_cache():
+    """Clear the disk usage cache."""
+    _disk_usage_cache.clear()
+
+
+def get_disk_usage(path, use_cache=True):
+    """Get disk usage statistics for a given path.
+    
+    Results are cached to avoid redundant system calls for repeated scans
+    of the same path within the TTL window.
+    """
+    path_str = str(path)
+    now = time.time()
+
+    if use_cache and path_str in _disk_usage_cache:
+        cached_result, cached_time = _disk_usage_cache[path_str]
+        if now - cached_time < _cache_ttl:
+            return cached_result
+
+    try:
+        stat = os.statvfs(path)
+        total = stat.f_blocks * stat.f_frsize
+        free = stat.f_bfree * stat.f_frsize
+        available = stat.f_bavail * stat.f_frsize
+        used = total - free
+        percent_used = (used / total * 100) if total > 0 else 0
+        result = {
+            "path": str(path),
+            "total": total,
+            "used": used,
+            "free": free,
+            "available": available,
+            "percent_used": round(percent_used, 2),
+        }
+
+        if use_cache:
+            _disk_usage_cache[path_str] = (result, now)
+
+        return result
+    except OSError as e:
+        print(f"Error getting disk usage for {path}: {e}", file=sys.stderr)
+        return None
 
 
 def ensure_data_dir():
@@ -36,28 +91,6 @@ def save_snapshots(snapshots):
     ensure_data_dir()
     with open(SNAPSHOTS_FILE, "w") as f:
         json.dump({"snapshots": snapshots}, f, indent=2)
-
-
-def get_disk_usage(path):
-    """Get disk usage statistics for a given path."""
-    try:
-        stat = os.statvfs(path)
-        total = stat.f_blocks * stat.f_frsize
-        free = stat.f_bfree * stat.f_frsize
-        available = stat.f_bavail * stat.f_frsize
-        used = total - free
-        percent_used = (used / total * 100) if total > 0 else 0
-        return {
-            "path": str(path),
-            "total": total,
-            "used": used,
-            "free": free,
-            "available": available,
-            "percent_used": round(percent_used, 2),
-        }
-    except OSError as e:
-        print(f"Error getting disk usage for {path}: {e}", file=sys.stderr)
-        return None
 
 
 def format_size(bytes_value):
@@ -180,14 +213,14 @@ def delete_snapshot(snapshot_id):
     snapshots = load_snapshots()
     original_count = len(snapshots)
     snapshots = [s for s in snapshots if s["id"] != snapshot_id]
-    
+
     if len(snapshots) == original_count:
         print(f"Snapshot #{snapshot_id} not found", file=sys.stderr)
         return False
-    
+
     for i, snap in enumerate(snapshots, 1):
         snap["id"] = i
-    
+
     save_snapshots(snapshots)
     print(f"Snapshot #{snapshot_id} deleted")
     return True
